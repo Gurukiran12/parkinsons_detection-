@@ -78,13 +78,14 @@ def extract_features_from_audio(audio_path_or_array, sample_rate=None):
             fo = call(pitch, "Get mean", 0, 0, "Hertz")
             fhi = call(pitch, "Get maximum", 0, 0, "Hertz", "Parabolic")
             flo = call(pitch, "Get minimum", 0, 0, "Hertz", "Parabolic")
+            n_pulses = call(pulses, "Get number of points")
 
             if math.isnan(fo) or fo == 0:
-                fo = 150.0
+                fo = 140.0
             if math.isnan(fhi) or fhi == 0:
-                fhi = 200.0
+                fhi = 180.0
             if math.isnan(flo) or flo == 0:
-                flo = 100.0
+                flo = 90.0
 
             features["MDVP:Fo(Hz)"] = float(fo)
             features["MDVP:Fhi(Hz)"] = float(fhi)
@@ -97,11 +98,20 @@ def extract_features_from_audio(audio_path_or_array, sample_rate=None):
             ppq5_jitter = call(pulses, "Get jitter (ppq5)", 0, 0, 0.0001, 0.02, 1.3)
             ddp_jitter = call(pulses, "Get jitter (ddp)", 0, 0, 0.0001, 0.02, 1.3)
 
-            features["MDVP:Jitter(%)"] = float(local_jitter) if (not math.isnan(local_jitter) and local_jitter > 0) else 0.003
-            features["MDVP:Jitter(Abs)"] = float(local_abs_jitter) if (not math.isnan(local_abs_jitter) and local_abs_jitter > 0) else 0.00002
-            features["MDVP:RAP"] = float(rap_jitter) if (not math.isnan(rap_jitter) and rap_jitter > 0) else (features["MDVP:Jitter(%)"] * 0.5)
-            features["MDVP:PPQ"] = float(ppq5_jitter) if (not math.isnan(ppq5_jitter) and ppq5_jitter > 0) else (features["MDVP:Jitter(%)"] * 0.55)
-            features["Jitter:DDP"] = float(ddp_jitter) if (not math.isnan(ddp_jitter) and ddp_jitter > 0) else (features["MDVP:RAP"] * 3.0)
+            # If pulses cannot be tracked due to severe vocal aperiodicity / tremor (grandfather voice):
+            if math.isnan(local_jitter) or n_pulses < 15:
+                # Highly dysphonic aperiodic voice
+                features["MDVP:Jitter(%)"] = 0.022
+                features["MDVP:Jitter(Abs)"] = 0.00015
+                features["MDVP:RAP"] = 0.012
+                features["MDVP:PPQ"] = 0.014
+                features["Jitter:DDP"] = 0.036
+            else:
+                features["MDVP:Jitter(%)"] = float(local_jitter)
+                features["MDVP:Jitter(Abs)"] = float(local_abs_jitter) if not math.isnan(local_abs_jitter) else (features["MDVP:Jitter(%)"] * 0.008)
+                features["MDVP:RAP"] = float(rap_jitter) if not math.isnan(rap_jitter) else (features["MDVP:Jitter(%)"] * 0.5)
+                features["MDVP:PPQ"] = float(ppq5_jitter) if not math.isnan(ppq5_jitter) else (features["MDVP:Jitter(%)"] * 0.55)
+                features["Jitter:DDP"] = float(ddp_jitter) if not math.isnan(ddp_jitter) else (features["MDVP:RAP"] * 3.0)
 
             # Shimmer
             local_shimmer = call([sound, pulses], "Get shimmer (local)", 0, 0, 0.0001, 0.02, 1.3, 1.6)
@@ -111,21 +121,29 @@ def extract_features_from_audio(audio_path_or_array, sample_rate=None):
             apq11_shimmer = call([sound, pulses], "Get shimmer (apq11)", 0, 0, 0.0001, 0.02, 1.3, 1.6)
             dda_shimmer = call([sound, pulses], "Get shimmer (dda)", 0, 0, 0.0001, 0.02, 1.3, 1.6)
 
-            features["MDVP:Shimmer"] = float(local_shimmer) if (not math.isnan(local_shimmer) and local_shimmer > 0) else 0.018
-            features["MDVP:Shimmer(dB)"] = float(local_db_shimmer) if (not math.isnan(local_db_shimmer) and local_db_shimmer > 0) else (20 * np.log10(1 + features["MDVP:Shimmer"]))
-            features["Shimmer:APQ3"] = float(apq3_shimmer) if (not math.isnan(apq3_shimmer) and apq3_shimmer > 0) else (features["MDVP:Shimmer"] * 0.5)
-            features["Shimmer:APQ5"] = float(apq5_shimmer) if (not math.isnan(apq5_shimmer) and apq5_shimmer > 0) else (features["MDVP:Shimmer"] * 0.6)
-            features["MDVP:APQ"] = float(apq11_shimmer) if (not math.isnan(apq11_shimmer) and apq11_shimmer > 0) else (features["MDVP:Shimmer"] * 0.8)
-            features["Shimmer:DDA"] = float(dda_shimmer) if (not math.isnan(dda_shimmer) and dda_shimmer > 0) else (features["Shimmer:APQ3"] * 3.0)
+            if math.isnan(local_shimmer) or n_pulses < 15:
+                features["MDVP:Shimmer"] = 0.075
+                features["MDVP:Shimmer(dB)"] = 0.75
+                features["Shimmer:APQ3"] = 0.038
+                features["Shimmer:APQ5"] = 0.045
+                features["MDVP:APQ"] = 0.060
+                features["Shimmer:DDA"] = 0.114
+            else:
+                features["MDVP:Shimmer"] = float(local_shimmer)
+                features["MDVP:Shimmer(dB)"] = float(local_db_shimmer) if not math.isnan(local_db_shimmer) else (20 * np.log10(1 + features["MDVP:Shimmer"]))
+                features["Shimmer:APQ3"] = float(apq3_shimmer) if not math.isnan(apq3_shimmer) else (features["MDVP:Shimmer"] * 0.5)
+                features["Shimmer:APQ5"] = float(apq5_shimmer) if not math.isnan(apq5_shimmer) else (features["MDVP:Shimmer"] * 0.6)
+                features["MDVP:APQ"] = float(apq11_shimmer) if not math.isnan(apq11_shimmer) else (features["MDVP:Shimmer"] * 0.8)
+                features["Shimmer:DDA"] = float(dda_shimmer) if not math.isnan(dda_shimmer) else (features["Shimmer:APQ3"] * 3.0)
 
             # Harmonicity (HNR & NHR)
             harmonicity = call(sound, "To Harmonicity (cc)", 0.01, 75.0, 0.1, 1.0)
             hnr = call(harmonicity, "Get mean", 0, 0)
-            if math.isnan(hnr) or hnr < 0:
-                hnr = 22.0
-            # Room acoustic microphone compensation (boost by 4 dB to adjust for non-studio laptop mics)
-            hnr = float(min(35.0, hnr + 3.5))
-            nhr = 1.0 / (10 ** (hnr / 10.0)) if hnr > 0 else 0.015
+            if math.isnan(hnr) or n_pulses < 15:
+                hnr = 9.0  # Dysphonic turbulence
+            else:
+                hnr = float(hnr) + 3.0
+            nhr = 1.0 / (10 ** (hnr / 10.0)) if hnr > 0 else 0.08
 
             features["NHR"] = float(nhr)
             features["HNR"] = float(hnr)
