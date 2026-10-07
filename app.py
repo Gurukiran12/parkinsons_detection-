@@ -186,8 +186,8 @@ with gr.Blocks(title="Parkinson's Multimodal AI Diagnostic Suite") as demo:
         # TAB 1: Real-Time Voice Agent & Vocal Biomarkers
         with gr.Tab("🎙️ Real-Time Voice Agent"):
             gr.Markdown("""
-            ### 🎙️ Phonation & Acoustic Instability Analysis
-            *Instructions for Patient:* Click **Record from microphone** and sustain a steady vowel sound (e.g. **'aaaaah'**) for **3 to 5 seconds** at a comfortable volume.
+            ### 🎙️ Phonation & Continuous Speech Acoustic Analysis
+            *Instructions for Patient:* Click **Record from microphone** and speak a natural sentence (e.g., *"Today is a good day for a pleasant walk"*) **OR** sustain a clear vowel sound (e.g. **'aaaaah'**) for **3 to 5 seconds**.
             """)
             
             with gr.Row():
