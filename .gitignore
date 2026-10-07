@@ -1,0 +1,21 @@
+# Virtual Environment
+.venv/
+env/
+venv/
+ENV/
+
+# Python Cache & Bytecode
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Gradio & Local Session Cache
+.gradio/
+prediction_images/
+
+# macOS System Files
+.DS_Store
+.AppleDouble
+.LSOverride
+._*

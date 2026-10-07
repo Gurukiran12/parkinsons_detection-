@@ -1,0 +1,14 @@
+gradio
+pandas
+numpy
+matplotlib
+soundfile
+praat-parselmouth
+librosa
+scipy
+scikit-learn
+xgboost
+imbalanced-learn
+tensorflow
+pillow
+opencv-python
