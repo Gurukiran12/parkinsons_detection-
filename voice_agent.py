@@ -38,29 +38,22 @@ def load_voice_model_artifacts():
 def predict_voice_sample(audio_input):
     """
     Takes audio from live mic or file, extracts features, generates visualizations,
-    and runs model predictions.
-    Returns:
-    - result_dict: {
-        'prediction': str,
-        'probability': float,
-        'risk_level': str,
-        'features': dict,
-        'explanation': str
-      }
-    - fig_plots: matplotlib figure with waveform, pitch track, and biomarker radar
-    - features_df: DataFrame of computed acoustic features
+    and runs calibrated model predictions.
     """
     if audio_input is None:
         return None, None, None, "⚠️ Please record or upload an audio sample."
 
     # Extract 22 clinical acoustic features
     features_dict = extract_features_from_audio(audio_input)
+    if features_dict is None:
+        return None, None, None, "⚠️ **No clear voice / speech detected in recording.**\n\nPlease ensure your microphone is active and sustain a clear vowel sound (e.g. **'aaaaah'**) for 3 to 5 seconds."
+
     df_feat = pd.DataFrame([features_dict])
 
     # Try loading trained models
     pkg, cnn_subs = load_voice_model_artifacts()
 
-    probability = 0.5
+    model_prob = None
     model_used = "Acoustic Biomarker Estimator"
 
     if pkg is not None and "scaler" in pkg:
@@ -83,34 +76,58 @@ def predict_voice_sample(audio_input):
                 for sub_m, feat_idx, w in zip(cnn_subs, pkg["cnn_feat_idx"][:len(cnn_subs)], weights):
                     p = sub_m.predict(X_cnn[:, feat_idx, :], verbose=0).flatten()
                     sub_preds.append(p * w)
-                probability = float(np.sum(sub_preds))
+                model_prob = float(np.sum(sub_preds))
                 model_used = "1D-CNN Bagging Ensemble"
             elif pkg.get("xgb_model") is not None:
-                probability = float(pkg["xgb_model"].predict_proba(X_scaled)[0][1])
+                model_prob = float(pkg["xgb_model"].predict_proba(X_scaled)[0][1])
                 model_used = "XGBoost Classifier"
             elif pkg.get("rf_model") is not None:
-                probability = float(pkg["rf_model"].predict_proba(X_scaled)[0][1])
+                model_prob = float(pkg["rf_model"].predict_proba(X_scaled)[0][1])
                 model_used = "Random Forest Classifier"
 
-    # Fallback to acoustic heuristic if models not yet trained
-    if pkg is None or probability == 0.5:
-        jitter_risk = min(1.0, features_dict["MDVP:Jitter(%)"] / 0.01)
-        shimmer_risk = min(1.0, features_dict["MDVP:Shimmer"] / 0.05)
-        hnr_risk = max(0.0, min(1.0, (25.0 - features_dict["HNR"]) / 15.0))
-        ppe_risk = min(1.0, features_dict["PPE"] / 0.35)
-        probability = float(0.3 * jitter_risk + 0.3 * shimmer_risk + 0.2 * hnr_risk + 0.2 * ppe_risk)
+    # Compute Clinical Biomarker Instability Scores
+    jitter = features_dict.get("MDVP:Jitter(%)", 0.003)
+    shimmer = features_dict.get("MDVP:Shimmer", 0.02)
+    hnr = features_dict.get("HNR", 22.0)
+    ppe = features_dict.get("PPE", 0.12)
+    rpde = features_dict.get("RPDE", 0.40)
+    spread1 = features_dict.get("spread1", -6.5)
 
-    # For live voice recordings / real-time voice agent
-    probability = 0.0
-    is_pd = False
-    status_label = "Healthy Vocal Pattern"
-    risk_level = "Low"
+    # Clinical normalization curves (0.0 = healthy control baseline, 1.0 = severe dysphonia)
+    j_score = np.clip((jitter - 0.0035) / 0.0075, 0.0, 1.0)
+    s_score = np.clip((shimmer - 0.020) / 0.035, 0.0, 1.0)
+    h_score = np.clip((23.0 - hnr) / 10.0, 0.0, 1.0)
+    p_score = np.clip((ppe - 0.13) / 0.22, 0.0, 1.0)
+    r_score = np.clip((rpde - 0.42) / 0.22, 0.0, 1.0)
+    sp_score = np.clip((spread1 - (-6.2)) / 2.2, 0.0, 1.0)
+
+    acoustic_risk = float(0.25 * j_score + 0.25 * s_score + 0.20 * h_score + 0.15 * p_score + 0.15 * sp_score)
+
+    # Combine ML probability with acoustic clinical evaluation
+    if model_prob is not None:
+        raw_prob = (0.50 * model_prob) + (0.50 * acoustic_risk)
+    else:
+        raw_prob = acoustic_risk
+
+    # Calibrate probability smoothly
+    probability = float(np.clip(raw_prob, 0.01, 0.99))
+
+    # Determine Diagnostic Classification & Risk Level
+    if probability < 0.38:
+        status_label = "Healthy Vocal Pattern"
+        risk_level = "Low Risk"
+    elif probability < 0.65:
+        status_label = "Borderline / Mild Vocal Instability"
+        risk_level = "Moderate Risk"
+    else:
+        status_label = "Parkinsonian Vocal Pattern Detected"
+        risk_level = "High Risk"
 
     # Generate Clinical Acoustic Plots
     fig = create_voice_clinical_plot(audio_input, features_dict, probability)
 
     explanation = f"""### 🎙️ Real-Time Voice Agent Assessment
-• **Diagnostic Classification**: **{status_label}** • **Parkinson's Probability**: **{probability*100:.1f}%** • **Model Engine**: {model_used}
+• **Diagnostic Classification**: **{status_label}** • **Parkinson's Probability**: **{probability*100:.1f}%** ({risk_level}) • **Model Engine**: {model_used}
 
 #### Key Vocal Biomarker Insights:
 - **Pitch Frequency ($F_0$)**: {features_dict.get('MDVP:Fo(Hz)', 0):.1f} Hz (Range: {features_dict.get('MDVP:Flo(Hz)', 0):.1f} – {features_dict.get('MDVP:Fhi(Hz)', 0):.1f} Hz)
