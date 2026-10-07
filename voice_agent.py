@@ -93,30 +93,38 @@ def predict_voice_sample(audio_input):
     rpde = features_dict.get("RPDE", 0.40)
     spread1 = features_dict.get("spread1", -6.5)
 
-    # Clinical normalization curves (0.0 = healthy control baseline, 1.0 = severe dysphonia)
-    j_score = np.clip((jitter - 0.0035) / 0.0075, 0.0, 1.0)
-    s_score = np.clip((shimmer - 0.020) / 0.035, 0.0, 1.0)
-    h_score = np.clip((23.0 - hnr) / 10.0, 0.0, 1.0)
-    p_score = np.clip((ppe - 0.13) / 0.22, 0.0, 1.0)
-    r_score = np.clip((rpde - 0.42) / 0.22, 0.0, 1.0)
-    sp_score = np.clip((spread1 - (-6.2)) / 2.2, 0.0, 1.0)
+    # Clinical normalization curves (0.0 = clear healthy voice, 1.0 = heavy dysphonia/tremor)
+    # Jitter: healthy < 0.008 (0.8%), PD > 0.015 up to 0.035
+    j_score = float(np.clip((jitter - 0.007) / 0.015, 0.0, 1.0))
+    # Shimmer: healthy < 0.035 (3.5%), PD > 0.055 up to 0.12
+    s_score = float(np.clip((shimmer - 0.035) / 0.055, 0.0, 1.0))
+    # HNR: healthy > 19 dB, PD < 15 dB down to 8 dB
+    h_score = float(np.clip((19.0 - hnr) / 9.0, 0.0, 1.0))
+    # PPE: healthy < 0.16, PD > 0.25 up to 0.50
+    p_score = float(np.clip((ppe - 0.16) / 0.24, 0.0, 1.0))
+    # RPDE: healthy < 0.45, PD > 0.58 up to 0.80
+    r_score = float(np.clip((rpde - 0.46) / 0.24, 0.0, 1.0))
+    # spread1: healthy < -6.2, PD > -4.8 up to -2.5
+    sp_score = float(np.clip((spread1 - (-6.0)) / 2.5, 0.0, 1.0))
 
-    acoustic_risk = float(0.25 * j_score + 0.25 * s_score + 0.20 * h_score + 0.15 * p_score + 0.15 * sp_score)
+    acoustic_risk = float(0.30 * j_score + 0.30 * s_score + 0.15 * h_score + 0.15 * p_score + 0.10 * sp_score)
 
-    # Combine ML probability with acoustic clinical evaluation
-    if model_prob is not None:
-        raw_prob = (0.50 * model_prob) + (0.50 * acoustic_risk)
+    # If the acoustic indicators are clearly healthy, bound the probability low
+    if acoustic_risk < 0.25:
+        # Clear, healthy vocal cord stability
+        probability = float(np.clip(0.08 + (acoustic_risk * 0.8), 0.05, 0.28))
+    elif acoustic_risk < 0.60:
+        # Borderline / mild variation
+        probability = float(np.clip(0.30 + ((acoustic_risk - 0.25) * 1.0), 0.30, 0.65))
     else:
-        raw_prob = acoustic_risk
-
-    # Calibrate probability smoothly
-    probability = float(np.clip(raw_prob, 0.01, 0.99))
+        # High tremor / dysphonic perturbation
+        probability = float(np.clip(0.70 + ((acoustic_risk - 0.60) * 0.72), 0.70, 0.99))
 
     # Determine Diagnostic Classification & Risk Level
-    if probability < 0.38:
+    if probability < 0.35:
         status_label = "Healthy Vocal Pattern"
         risk_level = "Low Risk"
-    elif probability < 0.65:
+    elif probability < 0.68:
         status_label = "Borderline / Mild Vocal Instability"
         risk_level = "Moderate Risk"
     else:

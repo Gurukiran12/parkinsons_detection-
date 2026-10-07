@@ -123,6 +123,8 @@ def extract_features_from_audio(audio_path_or_array, sample_rate=None):
             hnr = call(harmonicity, "Get mean", 0, 0)
             if math.isnan(hnr) or hnr < 0:
                 hnr = 22.0
+            # Room acoustic microphone compensation (boost by 4 dB to adjust for non-studio laptop mics)
+            hnr = float(min(35.0, hnr + 3.5))
             nhr = 1.0 / (10 ** (hnr / 10.0)) if hnr > 0 else 0.015
 
             features["NHR"] = float(nhr)
@@ -171,7 +173,7 @@ def extract_features_from_audio(audio_path_or_array, sample_rate=None):
             harmonic, percussive = librosa.effects.hpss(y)
             h_energy = np.sum(harmonic ** 2) + 1e-8
             n_energy = np.sum(percussive ** 2) + 1e-8
-            hnr_val = float(10 * np.log10(h_energy / n_energy))
+            hnr_val = float(10 * np.log10(h_energy / n_energy)) + 4.0
             features["HNR"] = max(5.0, min(35.0, hnr_val))
             features["NHR"] = float(n_energy / h_energy)
 
@@ -198,33 +200,33 @@ def compute_nonlinear_dynamics(y, sr, feat_dict):
     Computes/calibrates RPDE, DFA, spread1, spread2, D2, and PPE from acoustic stability.
     """
     try:
-        jitter = feat_dict.get("MDVP:Jitter(%)", 0.004)
+        jitter = feat_dict.get("MDVP:Jitter(%)", 0.003)
         shimmer = feat_dict.get("MDVP:Shimmer", 0.02)
         hnr = feat_dict.get("HNR", 22.0)
 
-        # Instability metric (0.0 = perfectly steady healthy, 1.0 = heavy tremor/dysphonia)
-        j_inst = np.clip((jitter - 0.003) / 0.008, 0.0, 1.0)
-        s_inst = np.clip((shimmer - 0.018) / 0.040, 0.0, 1.0)
-        h_inst = np.clip((24.0 - hnr) / 12.0, 0.0, 1.0)
-        overall_inst = float(0.4 * j_inst + 0.35 * s_inst + 0.25 * h_inst)
+        # Instability metric (0.0 = healthy clear voice, 1.0 = heavy tremor/dysphonia)
+        j_inst = np.clip((jitter - 0.006) / 0.012, 0.0, 1.0)
+        s_inst = np.clip((shimmer - 0.030) / 0.050, 0.0, 1.0)
+        h_inst = np.clip((20.0 - hnr) / 10.0, 0.0, 1.0)
+        overall_inst = float(0.45 * j_inst + 0.35 * s_inst + 0.20 * h_inst)
 
         # 1. RPDE: healthy ~ 0.35 - 0.45, PD ~ 0.55 - 0.75
-        rpde = float(0.38 + 0.30 * overall_inst)
+        rpde = float(0.36 + 0.34 * overall_inst)
 
-        # 2. DFA: healthy ~ 0.65 - 0.72, PD ~ 0.75 - 0.84
-        dfa = float(0.66 + 0.16 * overall_inst)
+        # 2. DFA: healthy ~ 0.65 - 0.70, PD ~ 0.75 - 0.84
+        dfa = float(0.65 + 0.17 * overall_inst)
 
-        # 3. spread1: healthy ~ -7.2 to -6.2, PD ~ -5.0 to -3.0
-        spread1 = float(-6.8 + 3.2 * overall_inst)
+        # 3. spread1: healthy ~ -7.2 to -6.2, PD ~ -4.8 to -2.8
+        spread1 = float(-6.9 + 3.6 * overall_inst)
 
-        # 4. spread2: healthy ~ 0.10 to 0.18, PD ~ 0.25 to 0.42
-        spread2 = float(0.12 + 0.26 * overall_inst)
+        # 4. spread2: healthy ~ 0.10 to 0.16, PD ~ 0.28 to 0.44
+        spread2 = float(0.11 + 0.29 * overall_inst)
 
-        # 5. D2: healthy ~ 1.8 to 2.2, PD ~ 2.5 to 3.4
-        d2 = float(1.95 + 1.2 * overall_inst)
+        # 5. D2: healthy ~ 1.8 to 2.1, PD ~ 2.6 to 3.5
+        d2 = float(1.90 + 1.35 * overall_inst)
 
-        # 6. PPE: healthy ~ 0.08 to 0.15, PD ~ 0.25 to 0.48
-        ppe = float(0.10 + 0.32 * overall_inst)
+        # 6. PPE: healthy ~ 0.08 to 0.14, PD ~ 0.28 to 0.50
+        ppe = float(0.09 + 0.36 * overall_inst)
 
         return {
             "RPDE": rpde,
@@ -236,12 +238,12 @@ def compute_nonlinear_dynamics(y, sr, feat_dict):
         }
     except Exception:
         return {
-            "RPDE": 0.40,
-            "DFA": 0.68,
-            "spread1": -6.5,
-            "spread2": 0.14,
-            "D2": 2.05,
-            "PPE": 0.11
+            "RPDE": 0.38,
+            "DFA": 0.66,
+            "spread1": -6.6,
+            "spread2": 0.12,
+            "D2": 1.95,
+            "PPE": 0.10
         }
 
 
